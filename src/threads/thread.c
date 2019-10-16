@@ -28,6 +28,10 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/* MY CODE */
+struct list sleeping_list;
+int64_t least_time=100000;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -92,6 +96,7 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -215,7 +220,6 @@ thread_block (void)
 {
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
-
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -582,3 +586,59 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+
+/* MY CODE */
+
+void thread_sleep(int64_t ticks){
+  printf("THREAD SLEEP\n");
+  enum intr_level old_level;
+	old_level=intr_disable();
+
+  struct thread* cur=thread_current();
+  ASSERT(cur!=idle_thread);
+	cur->wakeup=ticks;
+
+	list_insert_ordered(&sleeping_list, &cur->elem, less_time, least_time);
+	least_time=(least_time>ticks)?ticks:least_time;
+  thread_block();
+  intr_set_level(old_level);
+
+}
+
+bool less_time(struct list_elem* a, struct list_elem* b, void* aux){
+	int64_t at=list_entry(a,struct thread, elem)->wakeup;
+	int64_t bt=list_entry(b,struct thread, elem)->wakeup;
+
+	if(aux>at) return true;
+	else if(bt>at) return true;
+	else return false;
+}
+
+int64_t return_least_time(){
+	if(list_empty(&sleeping_list)) least_time=100000;
+	else least_time=list_entry(list_front(&sleeping_list), struct thread, elem)->wakeup;
+	return least_time;
+}
+
+void thread_awake(int64_t ticks){
+	struct list_elem* e=list_begin(&sleeping_list);
+
+	 enum intr_level old_level;
+	old_level=intr_disable();
+
+	while(1){
+		if(e==list_end(&sleeping_list)) break;
+
+		struct thread* t=list_entry(e, struct thread, elem);
+		
+		if((t->wakeup)>ticks) break;
+		else{
+			e=list_next(e);
+			list_pop_front(&sleeping_list);
+			thread_unblock(t);
+		}
+
+	  intr_set_level(old_level);
+	}
+}
